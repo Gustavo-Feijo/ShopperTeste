@@ -1,9 +1,12 @@
-import express from "express";
-import { config } from "dotenv";
-import { z } from "zod";
+import { GoogleGenerativeAI, Part } from "@google/generative-ai";
 import { PatchSchema, UploadSchema } from "./validationSchemas";
-import prisma from "./db";
 import { MeasureType } from "@prisma/client";
+import { config } from "dotenv";
+import express from "express";
+import fs from "fs/promises";
+import prisma from "./db";
+import { v4 as uuidv4 } from "uuid";
+import { z } from "zod";
 
 // Load the .env file and look for errors.
 const keyLoad = config();
@@ -12,26 +15,159 @@ if (keyLoad.error) {
 }
 console.log("Dotenv file loaded correctly.");
 
-// Get the API Key and assure it's present.
-const apiKey = process.env.GEMINI_API_KEY;
-if (!apiKey) {
+// Verify if the API KEY is present.
+if (!process.env.GEMINI_API_KEY) {
   throw new Error("Gemini API Key Missing.");
+}
+// Instanciate the GenAI.
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+if (!genAI) {
+  throw new Error("Couldn't instanciate the Google Generative AI.");
 }
 
 console.log("Gemini API Key found.");
+
+// Get the model to be used.
+const model = genAI.getGenerativeModel({
+  model: "gemini-1.5-pro",
+});
+if (!model) {
+  throw new Error("Couldn't get the generative model.");
+}
 
 // Instanciate the express application.
 const app = express();
 
 // Parse the requests to json.
-app.use(express.json());
+app.use(express.json({ limit: "20mb" }));
 
-// TODO
+// Post route for handling image uploading to extract measures.
 app.post("/upload", async (req, res) => {
   try {
-    await UploadSchema.parseAsync(req.body);
+    // Validate the data with the Zod Schema.
+    const validatedData = await UploadSchema.parseAsync(req.body);
+    // Get the data from the passed datetime.
+    const measureDate = new Date(validatedData.measure_datetime);
+
+    // Get any measure for the same month and type.
+    const duplicate = await prisma.measure.findFirst({
+      where: {
+        measure_type: validatedData.measure_type,
+        measure_datetime: {
+          // Get any date greater thar or equal as the first day of the passed month.
+          // And less than the first day of the next month.
+          gte: new Date(measureDate.getFullYear(), measureDate.getMonth(), 1),
+          lt: new Date(
+            measureDate.getFullYear(),
+            measureDate.getMonth() + 1,
+            1
+          ),
+        },
+      },
+    });
+
+    // Handle a duplicate.
+    if (duplicate) {
+      return res.status(409).json({
+        error_code: "DOUBLE_REPORT",
+        error_description:
+          "A measure of same type was already done for this month.",
+      });
+    }
+    // Get the metadata.
+    const metadata = validatedData.image.split(";", 1)[0];
+
+    // Handle missing metadata.
+    if (!metadata) {
+      return res.status(400).json({
+        error_code: "INVALID_DATA",
+        error_description: "The BASE64 image is missing it's metadata.",
+      });
+    }
+
+    // Get the mime type.
+    const mimeType = metadata.split(":")[1];
+
+    // List of the accepted mime types by the Gemini Vision API.
+    const validImageTypes = [
+      "image/png",
+      "image/jpeg",
+      "image/webp",
+      "image/heic",
+      "image/heif",
+    ];
+
+    // Handle mime types not supported.
+    if (!validImageTypes.includes(mimeType)) {
+      return res.status(400).json({
+        error_code: "INVALID_DATA",
+        error_description:
+          "A image with a splicit and valid metadata should be provided.",
+      });
+    }
+
+    // Get the raw base64 data.
+    const base64data = validatedData.image.split(",")[1];
+
+    // Create the data from the image.
+    const image: Part = {
+      inlineData: {
+        data: base64data,
+        mimeType: mimeType,
+      },
+    };
+
+    // Prompt describing what to get from the image.
+    const prompt =
+      "This image is a measurement of a gas or water reading. Return the raw value of the measure as a number, without any adicional description.";
+
+    //Call for getting the data from the model and parsing to int.
+    const getContent = await model.generateContent([prompt, image]);
+    const parsedResponseValue = Number.parseInt(getContent.response.text());
+
+    // Handle a case where no integer value was returned.
+    if (isNaN(parsedResponseValue)) {
+      return res.status(400).json({
+        error_code: "INTERNAL_SERVER_ERROR",
+        error_description: "Couldn't retrieve a integer result from the image.",
+      });
+    }
+
+    // Get the file extension from the mime type.
+    const fileExtension = mimeType.split("/")[1];
+
+    // Create the path to where we will create the file.
+    const filePath = `${uuidv4()}.${fileExtension}`;
+    await fs.writeFile(`temp/${filePath}`, Buffer.from(base64data, "base64"));
+
+    // Create the entry on the database based on the model response.
+    const result = await prisma.measure.create({
+      data: {
+        customerCode: validatedData.customer_code,
+        measure_datetime: validatedData.measure_datetime,
+        measure_type: validatedData.measure_type,
+        image_url: `/temp/${filePath}`,
+        measure_value: parsedResponseValue,
+      },
+      select: { image_url: true, measure_value: true, measure_uuid: true },
+    });
+
+    console.log("Succesfully inserted a new measure in the database.");
+    // Return a sucess response.
+    return res.status(200).json(result);
   } catch (err) {
-    console.error(err);
+    // Handle a ZodError.
+    if (err instanceof z.ZodError) {
+      return res
+        .status(400)
+        .json({ error_code: "INVALID_DATA", error_description: err.message });
+    }
+    // Return a response for unhandled errors.
+    console.error(`Unhandled Error:${err}`);
+    return res.status(500).json({
+      error_code: "INTERNAL_SERVER_ERROR",
+      error_description: "An unexpected error occurred.",
+    });
   }
 });
 

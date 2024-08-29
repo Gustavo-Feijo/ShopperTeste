@@ -43,7 +43,7 @@ app.patch("/confirm", async (req, res) => {
 
     // Get the measure from the database.
     const measure = await prisma.measure.findUnique({
-      where: { id: validatedData.measure_uuid },
+      where: { measure_uuid: validatedData.measure_uuid },
     });
 
     // Handle the case where no measure was found.
@@ -55,7 +55,7 @@ app.patch("/confirm", async (req, res) => {
     }
 
     // Handle the case of a already confirmated measure.
-    if (measure.confirmed) {
+    if (measure.has_confirmed) {
       return res.status(409).json({
         error_code: "validatedData_DUPLICATE",
         error_description: "The specified measure was already confirmed.",
@@ -64,8 +64,11 @@ app.patch("/confirm", async (req, res) => {
 
     // Update the measure on the database.
     await prisma.measure.update({
-      data: { confirmed: true, value: validatedData.confirmed_value },
-      where: { id: validatedData.measure_uuid },
+      data: {
+        has_confirmed: true,
+        measure_value: validatedData.confirmed_value,
+      },
+      where: { measure_uuid: validatedData.measure_uuid },
     });
 
     // Return a sucess response.
@@ -119,7 +122,15 @@ app.get("/:customerCode/list", async (req, res) => {
       where: {
         customerCode: customerCode,
         ...(measureType && { type: measureType as MeasureType }),
-    },select:{"id":true}
+      },
+      select: {
+        measure_uuid: true,
+        measure_datetime: true,
+        image_url: true,
+        has_confirmed: true,
+        measure_type: true,
+        measure_value: true,
+      },
     });
 
     // If no measure is found, return a 404 response.

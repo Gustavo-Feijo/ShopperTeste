@@ -1,12 +1,21 @@
+import { Base64 } from "js-base64";
 import { z } from "zod";
 
 /**
  * Validation schema for the Upload request body.
  */
 export const UploadSchema = z.object({
-  image: z
-    .string()
-    .regex(/^data:(image\/(?:jpeg|png));base64,/, "Invalid base 64 image."),
+  image: z.string().refine(
+    (value) => {
+      // Split the base64 string to separete the mime type and only validate the data.
+      const base64 = value.split(",");
+      if (!Base64.isValid(base64[1])) return false;
+      return value;
+    },
+    {
+      message: "A valid Base64 image must be provided.",
+    }
+  ),
   customer_code: z.string({ message: "The customer code must be a string." }),
   measure_datetime: z.string().datetime({ message: "Invalid datetime." }),
   measure_type: z.enum(["WATER", "GAS"], {

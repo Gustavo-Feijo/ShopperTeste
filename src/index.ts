@@ -7,6 +7,7 @@ import fs from "fs/promises";
 import prisma from "./db";
 import { v4 as uuidv4 } from "uuid";
 import { z } from "zod";
+import mime from "mime-types";
 
 // Load the .env file and look for errors.
 const keyLoad = config();
@@ -40,6 +41,9 @@ const app = express();
 
 // Parse the requests to json.
 app.use(express.json({ limit: "20mb" }));
+
+// Send the images.
+app.use("/images", express.static("temp/"));
 
 // Post route for handling image uploading to extract measures.
 app.post("/upload", async (req, res) => {
@@ -128,11 +132,21 @@ app.post("/upload", async (req, res) => {
     // Handle a case where no integer value was returned.
     if (isNaN(parsedResponseValue)) {
       return res.status(400).json({
-        error_code: "INTERNAL_SERVER_ERROR",
+        error_code: "INVALID_DATA",
         error_description: "Couldn't retrieve a integer result from the image.",
       });
     }
 
+    // Verify if the returned value is within the postgres int range.
+    const MIN_INT32 = -2147483648;
+    const MAX_INT32 = 2147483647;
+
+    if (!(parsedResponseValue > MIN_INT32 && parsedResponseValue < MAX_INT32)) {
+      return res.status(400).json({
+        error_code: "INVALID_DATA",
+        error_description: "The returned measure value is too big.",
+      });
+    }
     // Get the file extension from the mime type.
     const fileExtension = mimeType.split("/")[1];
 
@@ -146,7 +160,7 @@ app.post("/upload", async (req, res) => {
         customerCode: validatedData.customer_code,
         measure_datetime: validatedData.measure_datetime,
         measure_type: validatedData.measure_type,
-        image_url: `/temp/${filePath}`,
+        image_url: filePath,
         measure_value: parsedResponseValue,
       },
       select: { image_url: true, measure_value: true, measure_uuid: true },
@@ -154,7 +168,9 @@ app.post("/upload", async (req, res) => {
 
     console.log("Succesfully inserted a new measure in the database.");
     // Return a sucess response.
-    return res.status(200).json(result);
+    return res
+      .status(200)
+      .json({ ...result, image_url: `/images/${result.image_url}` });
   } catch (err) {
     // Handle a ZodError.
     if (err instanceof z.ZodError) {
@@ -300,5 +316,4 @@ app.get("/:customerCode/list", async (req, res) => {
 
 // Get the port and start the HTTP server.
 const port = process.env.PORT || 3000;
-app.listen(port);
-console.log(`Started listening at port: ${port}`);
+app.listen(port, () => console.log(`Started listening at port: ${port}`));

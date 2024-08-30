@@ -7,14 +7,6 @@ import fs from "fs/promises";
 import prisma from "./db";
 import { v4 as uuidv4 } from "uuid";
 import { z } from "zod";
-import mime from "mime-types";
-
-// Load the .env file and look for errors.
-const keyLoad = config();
-if (keyLoad.error) {
-  throw new Error(`Coulnd't load the .env file: ${keyLoad.error.message}`);
-}
-console.log("Dotenv file loaded correctly.");
 
 // Verify if the API KEY is present.
 if (!process.env.GEMINI_API_KEY) {

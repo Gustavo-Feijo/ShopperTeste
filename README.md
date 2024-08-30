@@ -2,11 +2,11 @@
 
 ---
 
-This project is a coding test developed for a Junior Developer position for Shopper.
+This project is a coding test developed for a Junior Developer position at Shopper.
 
-It's a REST API made with Node.js and Typescript, using Docker for containerization and Express.js as the Framework.
+It is a REST API built with Node.js and TypeScript, using Docker for containerization and Express.js as the framework.
 
-Receives images of measures of Gas and Water, pass the images to a LLM Model to get the reading, then store it into the database.
+The API receives images of gas and water measurements, passes them to an LLM model to obtain the readings, and then stores the results in the database.
 
 ---
 

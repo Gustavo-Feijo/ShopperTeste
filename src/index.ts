@@ -265,7 +265,7 @@ app.get("/:customerCode/list", async (req, res) => {
     const measures = await prisma.measure.findMany({
       where: {
         customerCode: customerCode,
-        ...(measureType && { type: measureType as MeasureType }),
+        ...(measureType && { measure_type: measureType as MeasureType }),
       },
       select: {
         measure_uuid: true,

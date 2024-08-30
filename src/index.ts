@@ -1,7 +1,6 @@
 import { GoogleGenerativeAI, Part } from "@google/generative-ai";
 import { PatchSchema, UploadSchema } from "./validationSchemas";
 import { MeasureType } from "@prisma/client";
-import { config } from "dotenv";
 import express from "express";
 import fs from "fs/promises";
 import prisma from "./db";
@@ -40,6 +39,14 @@ app.use("/images", express.static("temp/"));
 // Post route for handling image uploading to extract measures.
 app.post("/upload", async (req, res) => {
   try {
+    // Verify if the base 64 image has it's mime type before validating it.
+    if (req.body.image && !req.body.image.startsWith("data:image/")) {
+      return res.status(400).json({
+        error_code: "INVALID_DATA",
+        error_description:
+          "The BASE64 image is missing it's Mime Type. Ex: data:image/png",
+      });
+    }
     // Validate the data with the Zod Schema.
     const validatedData = await UploadSchema.parseAsync(req.body);
     // Get the data from the passed datetime.
@@ -72,14 +79,6 @@ app.post("/upload", async (req, res) => {
     }
     // Get the metadata.
     const metadata = validatedData.image.split(";", 1)[0];
-
-    // Handle missing metadata.
-    if (!metadata) {
-      return res.status(400).json({
-        error_code: "INVALID_DATA",
-        error_description: "The BASE64 image is missing it's metadata.",
-      });
-    }
 
     // Get the mime type.
     const mimeType = metadata.split(":")[1];

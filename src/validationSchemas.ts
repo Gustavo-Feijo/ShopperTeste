@@ -8,8 +8,12 @@ export const UploadSchema = z.object({
   image: z.string().refine(
     (value) => {
       // Split the base64 string to separete the mime type and only validate the data.
-      const base64 = value.split(",");
-      if (!Base64.isValid(base64[1])) return false;
+      const [_, base64Data] = value.split(",");
+
+      // Ensure base64 data is present and valid
+      if (!base64Data || !Base64.isValid(base64Data)) {
+        return false;
+      }
       return value;
     },
     {

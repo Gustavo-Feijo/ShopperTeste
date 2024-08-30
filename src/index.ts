@@ -30,7 +30,7 @@ console.log("Gemini API Key found.");
 
 // Get the model to be used.
 const model = genAI.getGenerativeModel({
-  model: "gemini-1.5-pro",
+  model: "gemini-1.5-flash",
 });
 if (!model) {
   throw new Error("Couldn't get the generative model.");
